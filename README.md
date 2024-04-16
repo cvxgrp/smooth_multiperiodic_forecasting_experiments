@@ -7,7 +7,6 @@ Used packages and their versions are:
 | cvxpy          | 1.1.14   |
 | matplotlib     | 3.4.2    |
 | math           | Built-in |
-| pi (math)      | Built-in |
 | time           | Built-in |
 | scipy          | 1.7.1    |
 | seaborn        | 0.11.2   |
