@@ -1,4 +1,4 @@
-This directory contains a jupyter notebook and 3 data files to reproduce the results of the paper [Interpretable Net Load Forecasting Using Smooth Multiperiodic Features](https://web.stanford.edu/~boyd/papers/multiperiodic_forecasting.html).  
+This directory contains a Jupyter notebook and 3 data files to reproduce the results of the paper [Interpretable Net Load Forecasting Using Smooth Multiperiodic Features](https://web.stanford.edu/~boyd/papers/multiperiodic_forecasting.html).  
 Used packages and their versions are:  
 | Package        | Version  |
 |----------------|----------|
