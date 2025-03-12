@@ -142,16 +142,18 @@ if __name__ == '__main__':
     xgb_model = xgb.XGBRegressor()
     random_search_model = RandomizedSearchCV(xgb_model,
                                              parameters,
-                                             n_iter=1,
-                                             cv=2,
+                                             n_iter=20,
+                                             cv=3,
                                              scoring='neg_mean_absolute_error',
                                              verbose=5,
                                              n_jobs=2)
     random_search_model.fit(X, y, verbose=1)
     tuned_hyperparameters = random_search_model.best_params_
     # Take the best hyperparameters and rerun the model with the best parameters
-    xgb_model_optimized = xgb.XGBRegressor()#**tuned_hyperparameters)
+    xgb_model_optimized = xgb.XGBRegressor(**tuned_hyperparameters)
     xgb_model_optimized.fit(X, y, verbose=1)
+    # Write the optimized model to memory
+    xgb_model_optimized.save_model("optimized_xgboost_model.json")
     # Load in the test data
     test_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_out_sample.csv",
                            parse_dates=True,
@@ -182,12 +184,20 @@ if __name__ == '__main__':
     predict_y_unnormalized = ((predict_y * (target_vals['max'] -
                                            target_vals['min'])) +
                               target_vals['min'])
-    predict_y_unnormalized = predict_y_unnormalized
+    predict_y_unnormalized.index=test_time_series.index
+    real_y_unnormalized = ((real_y * (target_vals['max'] -
+                                           target_vals['min'])) +
+                              target_vals['min'])
     # Take the results and pivot them so that they're in the original 
     # expected format
-    residuals = real_y - predict_y
+    residuals = real_y_unnormalized - predict_y_unnormalized
+    print("RESIDUALS RESULTS:")
+    print("MAE:" + str(abs(residuals).mean()))
+    print("Median ABS ERROR:" + str(abs(residuals).median()))    
     results_df = pd.DataFrame({"datetime": test_time_series.index,
                                 'horizon_step_number': test_time_series['horizon_step_number'],
-                               "predicted": predict_y_unnormalized}, index=test_time_series.index)
+                               "predicted": predict_y_unnormalized})
     # Pivot the dataframe back 
-    results_df_pivoted = results_df.pivot(index="datetime", columns="horizon_step_number")['predicted']
+    results_df_pivoted = results_df.pivot(index="datetime",
+                                          columns="horizon_step_number")['predicted']
+    results_df_pivoted.to_csv("xgboost_results.csv")
