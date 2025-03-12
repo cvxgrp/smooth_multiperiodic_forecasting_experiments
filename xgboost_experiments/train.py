@@ -16,15 +16,14 @@ import numpy as np
 predict_train_data = True
 
 # Define the random search grid
-parameters = {'booster': ['gbtree', 'gblinear', 'dart'],
-              'learning_rate': [0.001, 0.01, 0.05, 0.1],
-              'max_depth': [2, 5, 10, 15, 20, 25],
-              'min_child_weight': [1, 5, 10, 15, 20, 25],
-              'colsample_bytree': [0.5, 0.6, 0.7, 0.8, 0.9, 1],
-              'n_estimators': [200, 300, 400, 500, 600, 700, 800, 900, 1000],
-              "reg_alpha": [0.5, 0.2, 1, 2, 5],
-              "reg_lambda": [2, 3, 5, 10],
-              "gamma": [1, 2, 3, 4, 5]}
+parameters = {'learning_rate': [0.001, 0.01, 0.05, 0.1],
+               'max_depth': [2, 5, 10, 15, 20, 25],
+               'min_child_weight': [1, 5, 10, 15, 20, 25],
+               'colsample_bytree': [0.5, 0.6, 0.7, 0.8, 0.9, 1],
+               'n_estimators': [200, 300, 400, 500, 600, 700, 800, 900, 1000],
+               "reg_alpha": [0.5, 0.2, 1, 2, 5],
+               "reg_lambda": [2, 3, 5, 10],
+               "gamma": [1, 2, 3, 4, 5]}
 
 def encode(data, col, max_val):
     data[col + '_sin'] = np.sin(2 * np.pi * data[col]/max_val)
@@ -125,11 +124,16 @@ if __name__ == '__main__':
     # save the normalization values
     normalization_params_list = list()
     for col in list(time_series):
-        min_val, max_val = min(time_series[col]), max(time_series[col])
-        time_series[col] = min_max_normalize(min_val, max_val, time_series[col])
-        normalization_params_list.append({"col": col,
-                                          "min": min_val,
-                                          "max": max_val})
+        if col in ['horizon_step_number', 'horizon_hour_sin', 'horizon_hour_cos',
+                   'horizon_day_sin', 'horizon_day_cos', '0', '1', '2', '3',
+                   '4', '5']:
+            pass
+        else:
+            min_val, max_val = min(time_series[col]), max(time_series[col])
+            time_series[col] = min_max_normalize(min_val, max_val, time_series[col])
+            normalization_params_list.append({"col": col,
+                                              "min": min_val,
+                                              "max": max_val})
     # Perform time series conversion into dependent and independent
     # variables
     X = time_series.drop(['value'], axis=1).values
@@ -146,7 +150,7 @@ if __name__ == '__main__':
     random_search_model.fit(X, y, verbose=1)
     tuned_hyperparameters = random_search_model.best_params_
     # Take the best hyperparameters and rerun the model with the best parameters
-    xgb_model_optimized = xgb.XGBRegressor(**tuned_hyperparameters)
+    xgb_model_optimized = xgb.XGBRegressor()#**tuned_hyperparameters)
     xgb_model_optimized.fit(X, y, verbose=1)
     # Load in the test data
     test_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_out_sample.csv",
@@ -159,10 +163,15 @@ if __name__ == '__main__':
     test_time_series = reformat_data_to_regression(test_x, test_y)
     # Normalize with respect to the training data
     for col in list(test_time_series):
-        data_vals = [x for x in normalization_params_list if x["col"] == col][0]
-        min_val, max_val = data_vals['min'], data_vals['max']
-        test_time_series[col] = min_max_normalize(min_val, max_val,
-                                                  test_time_series[col])
+        if col in ['horizon_step_number', 'horizon_hour_sin', 'horizon_hour_cos',
+                   'horizon_day_sin', 'horizon_day_cos', '0', '1', '2', '3',
+                   '4', '5']:
+            pass
+        else:
+            data_vals = [x for x in normalization_params_list if x["col"] == col][0]
+            min_val, max_val = data_vals['min'], data_vals['max']
+            test_time_series[col] = min_max_normalize(min_val, max_val,
+                                                      test_time_series[col])
     # Predict for test set
     predict_X = test_time_series.drop(['value'], axis=1).values
     real_y = test_time_series['value'].values
@@ -173,11 +182,12 @@ if __name__ == '__main__':
     predict_y_unnormalized = ((predict_y * (target_vals['max'] -
                                            target_vals['min'])) +
                               target_vals['min'])
+    predict_y_unnormalized = predict_y_unnormalized
     # Take the results and pivot them so that they're in the original 
     # expected format
     residuals = real_y - predict_y
     results_df = pd.DataFrame({"datetime": test_time_series.index,
-                                'horizon_step_number': round(test_time_series['horizon_step_number']*24),
-                               "predicted": predict_y_unnormalized})
+                                'horizon_step_number': test_time_series['horizon_step_number'],
+                               "predicted": predict_y_unnormalized}, index=test_time_series.index)
     # Pivot the dataframe back 
     results_df_pivoted = results_df.pivot(index="datetime", columns="horizon_step_number")['predicted']
