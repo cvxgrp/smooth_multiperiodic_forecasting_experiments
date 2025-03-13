@@ -55,31 +55,35 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
     criterion = torch.nn.MSELoss()
     # Creating the dataloader
     train_loader = DataLoader(dataset=train_data_set, batch_size=config['batch_size'])
-    test_loader = DataLoader(dataset=val_data_set, batch_size=1)
+    test_loader = DataLoader(dataset=val_data_set, batch_size=config['batch_size'])
     # Training and Evaluation loop
     for epoch in range(config['epochs']):
+        print('EPOCH {}:'.format(epoch + 1))
         model.train() 
+        avg_loss = 0.0
         for data, target in train_loader:
             optimizer.zero_grad()  # Clear gradients from the previous iteration
             output = model(data)  # Forward pass through the model
             loss = criterion(output, target)  # Calculate the loss
             loss.backward()  # Compute gradients (backpropagation)
             optimizer.step()  # Update model parameters
+            avg_loss += loss.item()
     
-        model.eval()  # Set the model to evaluation mode 
-        test_loss = 0
-        correct = 0
-        with torch.no_grad():  # Disable gradient calculations for efficiency
-            for data, target in test_loader:  # Iterate over test data
-                output = model(data)  
-                test_loss += criterion(output, target).item()
-                pred = output.argmax(dim=1, keepdim=True)
-                correct += pred.eq(target.view_as(pred)).sum().item()
+        running_vloss = 0.0
+        # Set the model to evaluation mode, disabling dropout and using population
+        # statistics for batch normalization.
+        model.eval()
     
-        test_loss /= len(test_loader.dataset)  # Calculate average test loss
-        print('\nEpoch: {}, Test Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-            epoch, test_loss, correct, len(test_loader.dataset),
-            100. * correct / len(test_loader.dataset)))
+        # Disable gradient computation and reduce memory consumption.
+        with torch.no_grad():
+            for i, vdata in enumerate(test_loader):
+                vinputs, vlabels = vdata
+                voutputs = model(vinputs)
+                vloss = criterion(voutputs, vlabels)
+                running_vloss += vloss
+    
+        avg_vloss = running_vloss / (i + 1)
+        print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
 
 # Create the dataset class
 class Data():
