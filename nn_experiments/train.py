@@ -5,29 +5,35 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 torch.manual_seed(42)
  
-# Creating the dataset class
+# Create the dataset class
 class Data():
     # Constructor
     def __init__(self,x, y):
         self.x = torch.tensor(np.array(x)).to(torch.float32)
         self.y = torch.tensor(np.array(y)).to(torch.float32)
         self.len = self.x.shape[0]
-    # Getter
+    
     def __getitem__(self, idx):          
         return self.x[idx], self.y[idx] 
-    # getting data length
+
     def __len__(self):
         return self.len
  
-# Creating a custom Multiple Linear Regression Model
+# Create Multiple Linear Regression Model
 class MultipleLinearRegression(torch.nn.Module):
-    # Constructor
+    
     def __init__(self, input_dim, output_dim):
         super(MultipleLinearRegression, self).__init__()
-        self.linear = torch.nn.Linear(input_dim, output_dim)
-    # Prediction
+        self.linear1 = torch.nn.Linear(input_dim, 1024)
+        self.linear2 = torch.nn.Linear(1024, 512)
+        self.linear3 = torch.nn.Linear(512, 256)
+        self.linear4 = torch.nn.Linear(256, output_dim)
+        
     def forward(self, x):
-        y_pred = self.linear(x)
+        y_pred1 = self.linear1(x)
+        y_pred2 = self.linear2(y_pred1)
+        y_pred3 = self.linear3(y_pred2)
+        y_pred = self.linear4(y_pred3)
         return y_pred
  
 
@@ -46,8 +52,8 @@ if __name__ == '__main__':
     MLR_model = MultipleLinearRegression(len(train_x.columns), len(train_y.columns))
     print("The parameters: ", list(MLR_model.parameters()))
      
-    # defining the model optimizer
-    optimizer = torch.optim.SGD(MLR_model.parameters(), lr=0.0001)
+    # Use the Adam optimizer (SGD has exploding gradients issue)
+    optimizer = torch.optim.Adam(MLR_model.parameters(), lr=0.0001)
     # defining the loss criterion
     criterion = torch.nn.MSELoss()
      
@@ -56,7 +62,7 @@ if __name__ == '__main__':
      
     # Train the model
     losses = []
-    epochs = 20
+    epochs = 40
     for epoch in range(epochs):
         for x,y in train_loader:
             y_pred = MLR_model(x)
