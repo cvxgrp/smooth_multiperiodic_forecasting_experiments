@@ -70,11 +70,7 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
             avg_loss += loss.item()
     
         running_vloss = 0.0
-        # Set the model to evaluation mode, disabling dropout and using population
-        # statistics for batch normalization.
         model.eval()
-    
-        # Disable gradient computation and reduce memory consumption.
         with torch.no_grad():
             for i, vdata in enumerate(test_loader):
                 vinputs, vlabels = vdata
@@ -164,34 +160,3 @@ if __name__ == '__main__':
     #                                         num_samples=20)
     #             )
     # tuner.fit()
-    
-    # # Creating the model object
-    # MLR_model = MultipleLinearRegression(len(train_x.columns), len(train_y.columns), 0.1).to(device)
-    # print("The parameters: ", list(MLR_model.parameters()))
-     
-    # optimizer = torch.optim.Adam(MLR_model.parameters(), lr=0.0001)
-    # # defining the loss criterion
-    # criterion = torch.nn.MSELoss()
-     
-    # # Creating the dataloader
-    # train_loader = DataLoader(dataset=data_set, batch_size=4)
-     
-    # # Train the model
-    # losses = []
-    # epochs = 100
-    # for epoch in range(epochs):
-    #     for x,y in train_loader:
-    #         y_pred = MLR_model(x)
-    #         loss = criterion(y_pred, y)
-    #         optimizer.zero_grad()
-    #         loss.backward()
-    #         optimizer.step()   
-    #     print(f"epoch = {epoch}, loss = {loss}")
-    #     losses.append(loss.item())
-    # print("Done training!")
-     
-    # # Plot the losses
-    # plt.plot(losses)
-    # plt.xlabel("no. of iterations")
-    # plt.ylabel("total loss")
-    # plt.show()
