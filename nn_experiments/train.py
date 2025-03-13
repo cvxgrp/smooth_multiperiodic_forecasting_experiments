@@ -7,20 +7,21 @@ import torch.nn.functional as F
 torch.manual_seed(42)
 # Use ray tune specifically to tune the functions
 from ray import tune
-from ray.tune.search.bayesopt import BayesOptSearch
 from ray.tune.search.hyperopt import HyperOptSearch
 from ray.tune.search.basic_variant import BasicVariantGenerator
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.search.hebo import HEBOSearch
+import torch.optim as optim
 
+# Use CUDA if available
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 search_space = {
             "epochs": tune.choice([*range(40, 100, 5)]), 
             "batch": tune.choice([2, 4, 8, 16, 32]), 
             "lr0": tune.uniform(0.00001, 0.01),
-            "momentum": tune.uniform(0.85, 0.99),
-            "weight_decay": tune.uniform(0.00001, 0.1),
-            "optimizer": tune.choice(["SGD", "AdamW", "Adam"])
+            "optimizer": tune.choice(["SGD", "AdamW", "Adam"]),
+            "dropout_rate": tune.uniform(0.1, 0.5) 
         }
 
 def min_max_normalize(min_val, max_val, data):
@@ -45,31 +46,47 @@ def min_max_normalize(min_val, max_val, data):
     return data_normalized
 
 
-def run_model_optimize(data_set, config):
-    optimizer = torch.optim.Adam(MLR_model.parameters(), lr=config['lr'])
+def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
+    # Declare the model
+    model = MultipleLinearRegression(x_dim, y_dim, config['dropout_rate']).to(device)
+    optimizer = getattr(optim, config["optimizer"].capitalize())(model.parameters(),
+                                                                 lr=config["lr0"])
     # defining the loss criterion
     criterion = torch.nn.MSELoss()
     # Creating the dataloader
-    train_loader = DataLoader(dataset=data_set, batch_size=config['batch_size'])
-    # Train the model
-    losses = []
+    train_loader = DataLoader(dataset=train_data_set, batch_size=config['batch_size'])
+    test_loader = DataLoader(dataset=val_data_set, batch_size=1)
+    # Training and Evaluation loop
     for epoch in range(config['epochs']):
-        for x,y in train_loader:
-            y_pred = MLR_model(x)
-            loss = criterion(y_pred, y)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()   
-        print(f"epoch = {epoch}, loss = {loss}")
-        losses.append(loss.item())
-    print("Done training!")
- 
+        model.train() 
+        for data, target in train_loader:
+            optimizer.zero_grad()  # Clear gradients from the previous iteration
+            output = model(data)  # Forward pass through the model
+            loss = criterion(output, target)  # Calculate the loss
+            loss.backward()  # Compute gradients (backpropagation)
+            optimizer.step()  # Update model parameters
+    
+        model.eval()  # Set the model to evaluation mode 
+        test_loss = 0
+        correct = 0
+        with torch.no_grad():  # Disable gradient calculations for efficiency
+            for data, target in test_loader:  # Iterate over test data
+                output = model(data)  
+                test_loss += criterion(output, target).item()
+                pred = output.argmax(dim=1, keepdim=True)
+                correct += pred.eq(target.view_as(pred)).sum().item()
+    
+        test_loss /= len(test_loader.dataset)  # Calculate average test loss
+        print('\nEpoch: {}, Test Loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+            epoch, test_loss, correct, len(test_loader.dataset),
+            100. * correct / len(test_loader.dataset)))
+
 # Create the dataset class
 class Data():
     # Constructor
     def __init__(self,x, y):
-        self.x = torch.tensor(np.array(x)).to(torch.float32)
-        self.y = torch.tensor(np.array(y)).to(torch.float32)
+        self.x = torch.tensor(np.array(x)).to(torch.float32).to(device)
+        self.y = torch.tensor(np.array(y)).to(torch.float32).to(device)
         self.len = self.x.shape[0]
     
     def __getitem__(self, idx):          
@@ -90,8 +107,8 @@ class MultipleLinearRegression(torch.nn.Module):
         
     def forward(self, x):
         y_pred1 = F.relu(self.linear1(x))
-        y_pred2 = F.relu(self.linear2(y_pred1))
-        y_pred = self.dropout(self.linear3(y_pred2))
+        y_pred2 = self.dropout(F.relu(self.linear2(y_pred1)))
+        y_pred = self.linear3(y_pred2)
         return y_pred
  
 
@@ -118,36 +135,59 @@ if __name__ == '__main__':
         train_y[col] = min_max_normalize(min_val, max_val, train_y[col])
         y_normalization_params_list.append({"col": col,
                                             "min": min_val,
-                                            "max": max_val})        
+                                            "max": max_val})
+    # Split the data set into training/validation
+    cutoff_idx = round(len(train_x) *.8)
+    val_x = train_x[cutoff_idx:]        
+    val_y = train_y[cutoff_idx:]  
+    train_x = train_x[:cutoff_idx]        
+    train_y = train_y[:cutoff_idx]  
     # Create the data set object
-    data_set = Data(train_x, train_y)
-    # Creating the model object
-    MLR_model = MultipleLinearRegression(len(train_x.columns), len(train_y.columns))
-    print("The parameters: ", list(MLR_model.parameters()))
+    train_data_set = Data(train_x, train_y)
+    val_data_set = Data(val_x, val_y)
+    config = {"batch_size": 4,
+              "lr0": .001, 
+              "epochs": 20,
+              "optimizer": "Adam",
+              "dropout_rate": 0.01}
+    # Run the model (example case)
+    run_model(train_data_set, val_data_set, config, len(train_x.columns), len(train_y.columns))
+    # # Run hyperparameter optimization with ray-tune
+    # tuner = tune.Tuner(
+    #             train_model,
+    #             param_space=search_space,
+    #             tune_config=tune.TuneConfig(search_alg=optuna_search, 
+    #                                         num_samples=20)
+    #             )
+    # tuner.fit()
+    
+    # # Creating the model object
+    # MLR_model = MultipleLinearRegression(len(train_x.columns), len(train_y.columns), 0.1).to(device)
+    # print("The parameters: ", list(MLR_model.parameters()))
      
-    optimizer = torch.optim.Adam(MLR_model.parameters(), lr=0.0001)
-    # defining the loss criterion
-    criterion = torch.nn.MSELoss()
+    # optimizer = torch.optim.Adam(MLR_model.parameters(), lr=0.0001)
+    # # defining the loss criterion
+    # criterion = torch.nn.MSELoss()
      
-    # Creating the dataloader
-    train_loader = DataLoader(dataset=data_set, batch_size=4)
+    # # Creating the dataloader
+    # train_loader = DataLoader(dataset=data_set, batch_size=4)
      
-    # Train the model
-    losses = []
-    epochs = 100
-    for epoch in range(epochs):
-        for x,y in train_loader:
-            y_pred = MLR_model(x)
-            loss = criterion(y_pred, y)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()   
-        print(f"epoch = {epoch}, loss = {loss}")
-        losses.append(loss.item())
-    print("Done training!")
+    # # Train the model
+    # losses = []
+    # epochs = 100
+    # for epoch in range(epochs):
+    #     for x,y in train_loader:
+    #         y_pred = MLR_model(x)
+    #         loss = criterion(y_pred, y)
+    #         optimizer.zero_grad()
+    #         loss.backward()
+    #         optimizer.step()   
+    #     print(f"epoch = {epoch}, loss = {loss}")
+    #     losses.append(loss.item())
+    # print("Done training!")
      
-    # Plot the losses
-    plt.plot(losses)
-    plt.xlabel("no. of iterations")
-    plt.ylabel("total loss")
-    plt.show()
+    # # Plot the losses
+    # plt.plot(losses)
+    # plt.xlabel("no. of iterations")
+    # plt.ylabel("total loss")
+    # plt.show()
