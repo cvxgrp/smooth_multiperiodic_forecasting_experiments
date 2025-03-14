@@ -4,7 +4,6 @@ import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import torch.nn.functional as F
-torch.manual_seed(42)
 # Use ray tune specifically to tune the functions
 from ray import tune
 from ray.tune.search.hyperopt import HyperOptSearch
@@ -12,6 +11,8 @@ from ray.tune.search.basic_variant import BasicVariantGenerator
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.search.hebo import HEBOSearch
 import torch.optim as optim
+
+torch.manual_seed(42)
 
 # Use CUDA if available
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
