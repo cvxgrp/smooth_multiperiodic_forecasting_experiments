@@ -19,7 +19,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # Hyperparameter search space
 search_space = {
             "epochs": tune.choice([*range(20, 100, 5)]), 
-            "batch": tune.choice([2, 4, 8, 16, 32]), 
+            "batch_size": tune.choice([2, 4, 8, 16, 32]), 
             "lr0": tune.uniform(0.00001, 0.01),
             "optimizer": tune.choice(["Adam"]),
             "dropout_rate": tune.uniform(0.01, 0.5) 
