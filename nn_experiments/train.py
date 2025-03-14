@@ -16,13 +16,27 @@ import torch.optim as optim
 # Use CUDA if available
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+# Hyperparameter search space
 search_space = {
-            "epochs": tune.choice([*range(40, 100, 5)]), 
+            "epochs": tune.choice([*range(20, 100, 5)]), 
             "batch": tune.choice([2, 4, 8, 16, 32]), 
             "lr0": tune.uniform(0.00001, 0.01),
-            "optimizer": tune.choice(["SGD", "AdamW", "Adam"]),
-            "dropout_rate": tune.uniform(0.1, 0.5) 
+            "optimizer": tune.choice(["Adam"]),
+            "dropout_rate": tune.uniform(0.01, 0.5) 
         }
+
+# Config of hyperparameters if we're just running the model
+hyperparameter_config = {"batch_size": 4,
+                         "lr0": .001, 
+                         "epochs": 30,
+                         "optimizer": "Adam",
+                         "dropout_rate": 0.01}
+
+# Identify if we want to run hyperparameter tuning or not. If yes,
+# identify the tuning strategy we want to use.
+run_tuning = True
+strategy = "random_grid_search"
+number_runs = 10
 
 def min_max_normalize(min_val, max_val, data):
     """
@@ -45,6 +59,47 @@ def min_max_normalize(min_val, max_val, data):
     data_normalized = (data - min_val) / (max_val - min_val)
     return data_normalized
 
+
+def run_hyperparameter_tune_fn(config, train_data_set, val_data_set, x_dim, y_dim):
+    """
+    Optimization function for hyperparameter tuning via Ray Tune.
+    """
+    # Declare the model
+    model = MultipleLinearRegression(x_dim, y_dim, config['dropout_rate']).to(device)
+    optimizer = getattr(optim, config["optimizer"].capitalize())(model.parameters(),
+                                                                 lr=config["lr0"])
+    # defining the loss criterion
+    criterion = torch.nn.MSELoss()
+    # Creating the dataloader
+    train_loader = DataLoader(dataset=train_data_set, batch_size=config['batch_size'])
+    val_loader = DataLoader(dataset=val_data_set, batch_size=config['batch_size'])
+    # Training and Evaluation loop
+    for epoch in range(config['epochs']):
+        model.train() 
+        avg_loss = 0.0
+        for i, dataset in enumerate(train_loader):
+            # Every data instance is an input + label pair
+            data, target = dataset
+            data, target= data.to(device), target.to(device)
+            optimizer.zero_grad()  # Clear gradients from the previous iteration
+            output = model(data)  # Forward pass through the model
+            loss = criterion(output, target)  # Calculate the loss
+            loss.backward()  # Compute gradients (backpropagation)
+            optimizer.step()  # Update model parameters
+            avg_loss += loss.item()
+        running_vloss = 0.0
+        model.eval()
+        with torch.no_grad():
+            for i, vdata in enumerate(val_loader):
+                vinputs, vlabels = vdata
+                voutputs = model(vinputs)
+                vloss = criterion(voutputs, vlabels)
+                running_vloss += vloss.item()
+    
+        avg_vloss = running_vloss / (i + 1)
+    # Return the validation loss--this is what we're going to optimize against
+    return {'val_loss': avg_vloss}    
+    
 
 def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
     # Declare the model
@@ -118,15 +173,17 @@ class MultipleLinearRegression(torch.nn.Module):
     
     def __init__(self, input_dim, output_dim, dropout_rate):
         super(MultipleLinearRegression, self).__init__()
-        self.linear1 = torch.nn.Linear(input_dim, 128)
-        self.linear2 = torch.nn.Linear(128, 64)
-        self.linear3 = torch.nn.Linear(64, output_dim)
+        self.linear1 = torch.nn.Linear(input_dim, 256)
+        self.linear2 = torch.nn.Linear(256, 128)
+        self.linear3 = torch.nn.Linear(128, 64)
+        self.linear4 = torch.nn.Linear(64, output_dim)
         self.dropout = torch.nn.Dropout(dropout_rate)
         
     def forward(self, x):
         y_pred1 = F.relu(self.linear1(x))
         y_pred2 = self.dropout(F.relu(self.linear2(y_pred1)))
-        y_pred = self.linear3(y_pred2)
+        y_pred3 = self.dropout(F.relu(self.linear3(y_pred2)))
+        y_pred = self.linear4(y_pred3)
         return y_pred
  
 
@@ -163,49 +220,67 @@ if __name__ == '__main__':
     # Create the data set object
     train_data_set = Data(train_x, train_y)
     val_data_set = Data(val_x, val_y)
-    config = {"batch_size": 4,
-              "lr0": .001, 
-              "epochs": 30,
-              "optimizer": "Adam",
-              "dropout_rate": 0.01}
-    # Run the model (example case)
-    model = run_model(train_data_set, val_data_set, config, len(train_x.columns), len(train_y.columns))
-    # Read in the test data and pre-process it
-    test_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_out_sample.csv",
-                           parse_dates=True,
-                           index_col=0)
-    test_y = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/Y_out_sample.csv",
-                          parse_dates=True,
-                          index_col=0)    
-    # Normalize all of the data w/r to the training data set
-    for col in list(test_x):
-        data_vals = [x for x in x_normalization_params_list if x["col"] == col][0]
-        min_val, max_val = data_vals['min'], data_vals['max']
-        test_x[col] = min_max_normalize(min_val, max_val, test_x[col])
-    # Read data into data loader
-    test_data_set = Data(test_x, test_y)
-    test_loader = DataLoader(dataset=test_data_set, batch_size=config['batch_size'])
-    # Generate associated predictions and unnormalize to original units
-    model.eval()
-    with torch.no_grad():
-        predict_y = model(test_data_set.x)
-    predict_y = pd.DataFrame(predict_y.cpu())
-    # Un-transform and compare results to original test-y data
-    for col in list(predict_y):
-        data_vals = [x for x in y_normalization_params_list if x["col"] == str(col)][0]
-        min_val, max_val = data_vals['min'], data_vals['max']
-        predict_y[col] = (predict_y[col] * (max_val - min_val)) + min_val
-    # calculate mean and median absolute error
-    mean_absolute_error = abs(np.array(test_y) - np.array(predict_y)).mean()
-    print("MAE: " + str(mean_absolute_error))
-    median_absolute_error = np.median(abs(np.array(test_y) -
-                                          np.array(predict_y)))
-    print("Median Absolute Error: " + str(median_absolute_error))
-    # # Run hyperparameter optimization with ray-tune
-    # tuner = tune.Tuner(
-    #             train_model,
-    #             param_space=search_space,
-    #             tune_config=tune.TuneConfig(search_alg=optuna_search, 
-    #                                         num_samples=20)
-    #             )
-    # tuner.fit()
+    if run_tuning:
+        if strategy == "random_grid_search":
+            search_strategy = BasicVariantGenerator()
+        if strategy == "optuna":
+            search_strategy = OptunaSearch()
+        if strategy == "hyperopt":
+            search_strategy = HyperOptSearch()
+        if strategy == "hebo":
+            search_strategy = HEBOSearch()
+        tuner = tune.Tuner(tune.with_resources(tune.with_parameters(
+                            run_hyperparameter_tune_fn,
+                            train_data_set=train_data_set,
+                            val_data_set=val_data_set, 
+                            x_dim=len(train_x.columns),
+                            y_dim=len(train_y.columns)), 
+                          {"gpu": 1, "cpu": 10}), 
+                           tune_config=tune.TuneConfig(
+                               metric='val_loss',
+                               mode="min",
+                               search_alg=search_strategy,
+                               num_samples=number_runs,
+                               max_concurrent_trials=1,
+                               trial_dirname_creator=lambda trial: str(
+                                   trial.trial_id)),
+                           param_space=search_space)
+        results = tuner.fit()
+    else:
+        # Run the model (example case)
+        model = run_model(train_data_set, val_data_set, 
+                          hyperparameter_config, 
+                          len(train_x.columns), 
+                          len(train_y.columns))
+        # Read in the test data and pre-process it
+        test_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_out_sample.csv",
+                               parse_dates=True,
+                               index_col=0)
+        test_y = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/Y_out_sample.csv",
+                              parse_dates=True,
+                              index_col=0)    
+        # Normalize all of the data w/r to the training data set
+        for col in list(test_x):
+            data_vals = [x for x in x_normalization_params_list if x["col"] == col][0]
+            min_val, max_val = data_vals['min'], data_vals['max']
+            test_x[col] = min_max_normalize(min_val, max_val, test_x[col])
+        # Read data into data loader
+        test_data_set = Data(test_x, test_y)
+        test_loader = DataLoader(dataset=test_data_set, 
+                                 batch_size=hyperparameter_config['batch_size'])
+        # Generate associated predictions and unnormalize to original units
+        model.eval()
+        with torch.no_grad():
+            predict_y = model(test_data_set.x)
+        predict_y = pd.DataFrame(predict_y.cpu())
+        # Un-transform and compare results to original test-y data
+        for col in list(predict_y):
+            data_vals = [x for x in y_normalization_params_list if x["col"] == str(col)][0]
+            min_val, max_val = data_vals['min'], data_vals['max']
+            predict_y[col] = (predict_y[col] * (max_val - min_val)) + min_val
+        # calculate mean and median absolute error
+        mean_absolute_error = abs(np.array(test_y) - np.array(predict_y)).mean()
+        print("MAE: " + str(mean_absolute_error))
+        median_absolute_error = np.median(abs(np.array(test_y) -
+                                              np.array(predict_y)))
+        print("Median Absolute Error: " + str(median_absolute_error))
