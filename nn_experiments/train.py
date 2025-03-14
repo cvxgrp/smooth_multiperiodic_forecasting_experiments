@@ -55,7 +55,7 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
     criterion = torch.nn.MSELoss()
     # Creating the dataloader
     train_loader = DataLoader(dataset=train_data_set, batch_size=config['batch_size'])
-    test_loader = DataLoader(dataset=val_data_set, batch_size=config['batch_size'])
+    val_loader = DataLoader(dataset=val_data_set, batch_size=config['batch_size'])
     epoch_performance_list = list()
     # Training and Evaluation loop
     for epoch in range(config['epochs']):
@@ -65,7 +65,6 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
         for i, dataset in enumerate(train_loader):
             # Every data instance is an input + label pair
             data, target = dataset
-            # Move to GPU
             data, target= data.to(device), target.to(device)
             optimizer.zero_grad()  # Clear gradients from the previous iteration
             output = model(data)  # Forward pass through the model
@@ -80,7 +79,7 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
         running_vloss = 0.0
         model.eval()
         with torch.no_grad():
-            for i, vdata in enumerate(test_loader):
+            for i, vdata in enumerate(val_loader):
                 vinputs, vlabels = vdata
                 voutputs = model(vinputs)
                 vloss = criterion(voutputs, vlabels)
@@ -97,7 +96,8 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
     plt.title("Training and Validation Loss over Epochs")
     plt.show()
     plt.close()
-    
+    return model
+
 
 # Create the dataset class
 class Data():
@@ -163,13 +163,44 @@ if __name__ == '__main__':
     # Create the data set object
     train_data_set = Data(train_x, train_y)
     val_data_set = Data(val_x, val_y)
-    config = {"batch_size": 8,
+    config = {"batch_size": 4,
               "lr0": .001, 
-              "epochs": 20,
+              "epochs": 30,
               "optimizer": "Adam",
               "dropout_rate": 0.01}
     # Run the model (example case)
-    run_model(train_data_set, val_data_set, config, len(train_x.columns), len(train_y.columns))
+    model = run_model(train_data_set, val_data_set, config, len(train_x.columns), len(train_y.columns))
+    # Read in the test data and pre-process it
+    test_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_out_sample.csv",
+                           parse_dates=True,
+                           index_col=0)
+    test_y = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/Y_out_sample.csv",
+                          parse_dates=True,
+                          index_col=0)    
+    # Normalize all of the data w/r to the training data set
+    for col in list(test_x):
+        data_vals = [x for x in x_normalization_params_list if x["col"] == col][0]
+        min_val, max_val = data_vals['min'], data_vals['max']
+        test_x[col] = min_max_normalize(min_val, max_val, test_x[col])
+    # Read data into data loader
+    test_data_set = Data(test_x, test_y)
+    test_loader = DataLoader(dataset=test_data_set, batch_size=config['batch_size'])
+    # Generate associated predictions and unnormalize to original units
+    model.eval()
+    with torch.no_grad():
+        predict_y = model(test_data_set.x)
+    predict_y = pd.DataFrame(predict_y.cpu())
+    # Un-transform and compare results to original test-y data
+    for col in list(predict_y):
+        data_vals = [x for x in y_normalization_params_list if x["col"] == str(col)][0]
+        min_val, max_val = data_vals['min'], data_vals['max']
+        predict_y[col] = (predict_y[col] * (max_val - min_val)) + min_val
+    # calculate mean and median absolute error
+    mean_absolute_error = abs(np.array(test_y) - np.array(predict_y)).mean()
+    print("MAE: " + str(mean_absolute_error))
+    median_absolute_error = np.median(abs(np.array(test_y) -
+                                          np.array(predict_y)))
+    print("Median Absolute Error: " + str(median_absolute_error))
     # # Run hyperparameter optimization with ray-tune
     # tuner = tune.Tuner(
     #             train_model,
