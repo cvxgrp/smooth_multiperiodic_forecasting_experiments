@@ -56,19 +56,27 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
     # Creating the dataloader
     train_loader = DataLoader(dataset=train_data_set, batch_size=config['batch_size'])
     test_loader = DataLoader(dataset=val_data_set, batch_size=config['batch_size'])
+    epoch_performance_list = list()
     # Training and Evaluation loop
     for epoch in range(config['epochs']):
         print('EPOCH {}:'.format(epoch + 1))
         model.train() 
         avg_loss = 0.0
-        for data, target in train_loader:
+        for i, dataset in enumerate(train_loader):
+            # Every data instance is an input + label pair
+            data, target = dataset
+            # Move to GPU
+            data, target= data.to(device), target.to(device)
             optimizer.zero_grad()  # Clear gradients from the previous iteration
             output = model(data)  # Forward pass through the model
             loss = criterion(output, target)  # Calculate the loss
             loss.backward()  # Compute gradients (backpropagation)
             optimizer.step()  # Update model parameters
             avg_loss += loss.item()
-    
+            if i % 1000 == 999:
+                last_loss = avg_loss / 1000
+                running_loss = 0.
+                    
         running_vloss = 0.0
         model.eval()
         with torch.no_grad():
@@ -76,10 +84,20 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
                 vinputs, vlabels = vdata
                 voutputs = model(vinputs)
                 vloss = criterion(voutputs, vlabels)
-                running_vloss += vloss
+                running_vloss += vloss.item()
     
         avg_vloss = running_vloss / (i + 1)
-        print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
+        print('LOSS train {} valid {}'.format(last_loss, avg_vloss))
+        epoch_performance_list.append({"epoch": epoch,
+                                       "train_loss": last_loss,
+                                       "val_loss": avg_vloss})
+    # Create graphic of train and validation losses over epochs
+    epoch_loss = pd.DataFrame(epoch_performance_list)
+    epoch_loss[['train_loss', 'val_loss']].plot()
+    plt.title("Training and Validation Loss over Epochs")
+    plt.show()
+    plt.close()
+    
 
 # Create the dataset class
 class Data():
@@ -145,7 +163,7 @@ if __name__ == '__main__':
     # Create the data set object
     train_data_set = Data(train_x, train_y)
     val_data_set = Data(val_x, val_y)
-    config = {"batch_size": 4,
+    config = {"batch_size": 8,
               "lr0": .001, 
               "epochs": 20,
               "optimizer": "Adam",
