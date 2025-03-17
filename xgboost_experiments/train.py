@@ -157,7 +157,7 @@ if __name__ == '__main__':
         # Write the optimized model to memory
         xgb_model_optimized.save_model("optimized_xgboost_model.json")
     else:
-        xgb_model_optimized = xgb.XGBRegressor() # or which ever sklearn booster you're are using
+        xgb_model_optimized = xgb.XGBRegressor()
         xgb_model_optimized.load_model("optimized_xgboost_model.json")
         # Load in the test data
         test_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_out_sample.csv",

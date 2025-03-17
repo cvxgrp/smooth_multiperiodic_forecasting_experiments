@@ -29,7 +29,7 @@ search_space = {
 # Config of hyperparameters if we're just running the model
 hyperparameter_config = {"batch_size": 16,
                          "lr0": 0.000288151, 
-                         "epochs": 40,
+                         "epochs": 55,
                          "optimizer": "Adam",
                          "dropout_rate": 0.360359}
 
