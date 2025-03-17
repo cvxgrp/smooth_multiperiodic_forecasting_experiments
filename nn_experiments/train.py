@@ -27,15 +27,15 @@ search_space = {
         }
 
 # Config of hyperparameters if we're just running the model
-hyperparameter_config = {"batch_size": 4,
-                         "lr0": .001, 
-                         "epochs": 30,
+hyperparameter_config = {"batch_size": 16,
+                         "lr0": 0.000288151, 
+                         "epochs": 40,
                          "optimizer": "Adam",
-                         "dropout_rate": 0.01}
+                         "dropout_rate": 0.360359}
 
 # Identify if we want to run hyperparameter tuning or not. If yes,
 # identify the tuning strategy we want to use.
-run_tuning = True
+run_tuning = False
 strategy = "random_grid_search"
 number_runs = 10
 
@@ -118,6 +118,7 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
         print('EPOCH {}:'.format(epoch + 1))
         model.train() 
         avg_loss = 0.0
+        last_loss = 0.0
         for i, dataset in enumerate(train_loader):
             # Every data instance is an input + label pair
             data, target = dataset
@@ -128,9 +129,8 @@ def run_model(train_data_set, val_data_set, config, x_dim, y_dim):
             loss.backward()  # Compute gradients (backpropagation)
             optimizer.step()  # Update model parameters
             avg_loss += loss.item()
-            if i % 1000 == 999:
-                last_loss = avg_loss / 1000
-                running_loss = 0.
+        # Compute last loss based on the number of batches
+        last_loss = avg_loss / (i + 1)
                     
         running_vloss = 0.0
         model.eval()
@@ -285,3 +285,6 @@ if __name__ == '__main__':
         median_absolute_error = np.median(abs(np.array(test_y) -
                                               np.array(predict_y)))
         print("Median Absolute Error: " + str(median_absolute_error))
+        predict_y.index = test_y.index
+        # write the results to a CSV
+        predict_y.to_csv("nn_results.csv")
