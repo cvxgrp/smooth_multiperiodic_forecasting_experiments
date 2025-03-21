@@ -12,9 +12,10 @@ from sklearn.metrics import mean_absolute_error
 from xgboost.sklearn import XGBRegressor
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
-predict_train_data = True
 tune_model = False
+data_folder_path = "C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/"
 
 # Define the random search grid
 parameters = {'learning_rate': [0.001, 0.01, 0.05, 0.1],
@@ -25,6 +26,16 @@ parameters = {'learning_rate': [0.001, 0.01, 0.05, 0.1],
                "reg_alpha": [0.5, 0.2, 1, 2, 5],
                "reg_lambda": [2, 3, 5, 10],
                "gamma": [1, 2, 3, 4, 5]}
+
+tuned_hyperparameters = {'reg_lambda': 5, 
+                          'reg_alpha': 0.2, 
+                          'n_estimators': 700, 
+                          'min_child_weight': 10, 
+                          'max_depth': 5, 
+                          'learning_rate': 0.01,
+                          'gamma': 1, 
+                          'colsample_bytree': 0.6}
+
 
 def encode(data, col, max_val):
     data[col + '_sin'] = np.sin(2 * np.pi * data[col]/max_val)
@@ -111,10 +122,10 @@ def reformat_data_to_regression(x, y):
     
 if __name__ == '__main__':
     # Read in the training and the test dataframes
-    train_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_in_sample.csv",
+    train_x = pd.read_csv(os.path.join(data_folder_path, "X_in_sample.csv"),
                            parse_dates=True,
                            index_col=0)
-    train_y = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/Y_in_sample.csv",
+    train_y = pd.read_csv(os.path.join(data_folder_path, "Y_in_sample.csv"),
                           parse_dates=True,
                           index_col=0)
     # Ok let's perform our feature engineering. Keep all of Girays features,
@@ -151,19 +162,23 @@ if __name__ == '__main__':
                                                  n_jobs=2)
         random_search_model.fit(X, y, verbose=1)
         tuned_hyperparameters = random_search_model.best_params_
+        print(tuned_hyperparameters)
         # Take the best hyperparameters and rerun the model with the best parameters
         xgb_model_optimized = xgb.XGBRegressor(**tuned_hyperparameters)
         xgb_model_optimized.fit(X, y, verbose=1)
         # Write the optimized model to memory
         xgb_model_optimized.save_model("optimized_xgboost_model.json")
     else:
-        xgb_model_optimized = xgb.XGBRegressor()
-        xgb_model_optimized.load_model("optimized_xgboost_model.json")
+        xgb_model_optimized = xgb.XGBRegressor(**tuned_hyperparameters)
+        # Fit the model with the tuned hyperparameters
+        xgb_model_optimized.fit(X, y, verbose=1)
         # Load in the test data
-        test_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_out_sample.csv",
+        test_x = pd.read_csv(os.path.join(data_folder_path, 
+                                          "X_out_sample.csv"),
                                parse_dates=True,
                                index_col=0)
-        test_y = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/Y_out_sample.csv",
+        test_y = pd.read_csv(os.path.join(data_folder_path,
+                                          "Y_out_sample.csv"),
                               parse_dates=True,
                               index_col=0)
         # Clean up the data for the model

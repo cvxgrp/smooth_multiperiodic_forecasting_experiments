@@ -11,6 +11,7 @@ from ray.tune.search.basic_variant import BasicVariantGenerator
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.search.hebo import HEBOSearch
 import torch.optim as optim
+import os
 
 torch.manual_seed(42)
 
@@ -38,6 +39,7 @@ hyperparameter_config = {"batch_size": 16,
 run_tuning = False
 strategy = "random_grid_search"
 number_runs = 10
+data_folder_path = "C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/"
 
 def min_max_normalize(min_val, max_val, data):
     """
@@ -191,10 +193,10 @@ class MultipleLinearRegression(torch.nn.Module):
 
 if __name__ == '__main__':
     # Read in the training dataframes
-    train_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_in_sample.csv",
+    train_x = pd.read_csv(os.path.join(data_folder_path, "X_in_sample.csv"),
                            parse_dates=True,
                            index_col=0)
-    train_y = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/Y_in_sample.csv",
+    train_y = pd.read_csv(os.path.join(data_folder_path, "Y_in_sample.csv"),
                           parse_dates=True,
                           index_col=0)
     # Perform min-max normalization on the data
@@ -254,10 +256,10 @@ if __name__ == '__main__':
                           len(train_x.columns), 
                           len(train_y.columns))
         # Read in the test data and pre-process it
-        test_x = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/X_out_sample.csv",
+        test_x = pd.read_csv(os.path.join(data_folder_path, "X_out_sample.csv"),
                                parse_dates=True,
                                index_col=0)
-        test_y = pd.read_csv("C:/Users/kperry/Documents/source/repos/smooth_multiperiodic_forecasting_experiments/Y_out_sample.csv",
+        test_y = pd.read_csv(os.path.join(data_folder_path, "Y_out_sample.csv"),
                               parse_dates=True,
                               index_col=0)    
         # Normalize all of the data w/r to the training data set
