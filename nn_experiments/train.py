@@ -13,6 +13,7 @@ from ray.tune.search.hebo import HEBOSearch
 import torch.optim as optim
 import os
 
+
 torch.manual_seed(42)
 
 # Use CUDA if available
